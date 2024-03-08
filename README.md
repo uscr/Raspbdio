@@ -13,7 +13,7 @@ Origin of this repo: [gitlab.uscr.ru/raspbdio](https://gitlab.uscr.ru/public-pro
     * [Starting Rasbpdio](#starting-rasbpdio)
     * [How to hide mouse pointer for touchscreens (byllseyey or older)](#hide-mouse-pointer)
 * [User manual](#user-manual)
-    * [Application window overview]
+    * [Application window overview](#raspbdio-screen-overview)
     * [Playlist controls](#playlist-controls)
     * [Station controls](#station-controls)
     * [Station information](#station-info)
