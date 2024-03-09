@@ -1,7 +1,7 @@
 [Unit]
 Description=Raspbdio
-After=network.target
-After=graphical.target
+After=network.target graphical.target
+Requires=network.target graphical.target
 
 [Service]
 User=<USER>
@@ -9,7 +9,7 @@ Group=<USER>
 WorkingDirectory=/home/<USER>/raspbdio
 Environment=DISPLAY=:0
 Environment=XDG_RUNTIME_DIR=/run/user/1000
-ExecStartPre=/usr/bin/sleep 5
+ExecStartPre=/usr/bin/sleep 10
 ExecStart=/home/<USER>/raspbdio/raspbdio.py
 Type=simple
 

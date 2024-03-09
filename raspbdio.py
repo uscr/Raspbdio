@@ -278,7 +278,7 @@ if __name__ == '__main__':
 
     media_player = vlc.MediaPlayer()
 
-    app = App(title="Radio", bg="black", layout="auto")
+    app = App(title="Raspbdio", bg="black", layout="auto")
     app.set_full_screen()
 
     # Playlist controllers (need to be alignet to bottom first for be a really bottom)
