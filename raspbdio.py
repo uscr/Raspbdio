@@ -1,315 +1,228 @@
 #!/usr/bin/python3
 
-import vlc, os, random, datetime
-from guizero import App, Text, PushButton, Box
+import vlc, random, datetime
+from time import localtime, strftime
+from Raspbdio import Raspbdio
+from tkinter import *
 
-playlist_path = "playlists"
+playlist_path = "./playlists"
 
-def station_prev():
-    global current_station_index
-    if current_station_index == 0:
-        current_station_index = len(stations)-1
+stop_button_label = "Стоп"
+random_button_label = "Случайная"
+favorite_button_label = "❤"
+delete_favorite_button_label = "Убрать\n❤"
+station_word = "Станция"
+from_word = "из"
+playlist_word = "Плейлист"
+
+def station_prev(raspbdio):
+    if raspbdio.current_station_index == 0:
+        raspbdio.current_station_index = len(raspbdio.stations)-1
     else:
-        current_station_index -= 1
-    update_text_and_housekeep()
-    play_stream()
-    save_data()
+        raspbdio.current_station_index -= 1
 
-def station_next():
-    global current_station_index
-    if current_station_index == len(stations)-1:
-        current_station_index = 0
+def station_next(raspbdio):
+    if raspbdio.current_station_index == len(raspbdio.stations)-1:
+        raspbdio.current_station_index = 0
     else:
-        current_station_index += 1
-    update_text_and_housekeep()
-    play_stream()
-    save_data()
+        raspbdio.current_station_index += 1
 
-def station_random():
-    global random_sta
-    random_sta = True
-    if len(stations) > 1:
-        global current_station_index
-        random_station_index = current_station_index
-        while random_station_index == current_station_index:
-            random_station_index = random.randint(0, len(stations)-1)
-        current_station_index = random_station_index
-        update_text_and_housekeep()
-        play_stream()
-        save_data()
-
-def station_fav():
-    global favorite_stations
-    title = stations[current_station_index]
-    stream = stations_data[title]["stream"]
-    if stream == favorite_stations_dict.get(title, {"stream":""})["stream"]:
-        del favorite_stations_dict[title]
-        favorite_stations.remove(title)
-        if current_playlist_index == 0:
-            save_data()
-            parse_playlist(True)
-            play_stream()
+def playlist_prev(raspbdio):
+    if raspbdio.current_playlist_index == 0:
+        raspbdio.current_playlist_index = len(raspbdio.playlists)-1
     else:
-        favorite_stations_dict[title] = {"stream": stream}
-        favorite_stations.append(title)
-        save_data()
-    update_text_and_housekeep()
+        raspbdio.current_playlist_index -= 1
+    raspbdio.playlist_changed()
 
-def playlist_prev():
+def playlist_next(raspbdio):
     global current_playlist_index
-    if current_playlist_index == 0:
-        current_playlist_index = len(playlists)-1
+    if raspbdio.current_playlist_index == len(raspbdio.playlists)-1:
+        raspbdio.current_playlist_index = 0
     else:
-        current_playlist_index -= 1
-    parse_playlist(True)
-    update_text_and_housekeep()
-    play_stream()
-    save_data()
+        raspbdio.current_playlist_index += 1
+    raspbdio.playlist_changed()
 
-def playlist_next():
-    global current_playlist_index
-    if current_playlist_index == len(playlists)-1:
-        current_playlist_index = 0
-    else:
-        current_playlist_index += 1
-    parse_playlist(True)
-    update_text_and_housekeep()
-    play_stream()
-    save_data()
+def station_random(raspbdio, btn):
+    if len(raspbdio.stations) > 1:
+        random_station_index = raspbdio.current_station_index
+        while random_station_index == raspbdio.current_station_index:
+            random_station_index = random.randint(0, len(raspbdio.stations)-1)
+        raspbdio.current_station_index = random_station_index
+        btn.after(1000, lambda : check_random_choice(raspbdio, btn, 0))
 
-def parse_playlist(event=False):
-    if event:
-        global stations
-        global stations_data
-        global current_station_index
-        current_station_index = 0
-    stations = []
-    stations_data = {}
-    with open(os.path.join(playlist_path, playlists[current_playlist_index]), 'r') as f:
-        playlist_data = f.read().split('\n')
-    extinf = False
-    text_station_title = "Parse failed"
-    for row in playlist_data:
-        if extinf:
-            extinf = False
-            stations_data[text_station_title] = {"stream": row}
-        if row.startswith("#EXTINF"):
-            extinf = True
-            text_station_title = "".join(row.split(",")[1:]).strip()
-            stations.append(text_station_title)
-    if not event:
-        return (stations, stations_data)
+def check_random_choice(raspbdio, btn, check_num):
+    if raspbdio.stream_status == raspbdio.stream_statuses["OK"]:
+        return
 
-def parse_favorite():
-    favorite_stations = []
-    favorite_stations_dict = {}
-    try:
-        with open(os.path.join(playlist_path, "Избранное.m3u"), 'r') as f:
-            playlist_data = f.read().split('\n')
-    except FileNotFoundError:
-        return ([], {})
-    extinf = False
-    text_station_title = "Parse failed"
-    for row in playlist_data:
-        if extinf:
-            extinf = False
-            favorite_stations_dict[text_station_title] = {"stream": row}
-        if row.startswith("#EXTINF"):
-            extinf = True
-            text_station_title = "".join(row.split(",")[1:])
-            favorite_stations.append(text_station_title)
-    return (favorite_stations, favorite_stations_dict)
-
-# Обновляет текст на дисплее
-# Перезапускает рандомный поиск если поток не удаётся получить
-def update_text_and_housekeep():
-    global note_symbol
-    global random_sta
-    global random_sta_opening_timestamp
-    global random_sta_playing_timestamp
-    global random_sta_error_timestamp
-    player_state = media_player.get_state()
-    if player_state==vlc.State.Playing:
-        stream_status = "▶"
-        if random_sta and random_sta_playing_timestamp == None:
-            random_sta_playing_timestamp = datetime.datetime.now()
+    if raspbdio.stream_status == raspbdio.stream_statuses["WAIT"]:
+        if check_num <= 10:
+            btn.after(1000, lambda : check_random_choice(raspbdio, btn, check_num+1))
         else:
-            if random_sta and datetime.datetime.now() - random_sta_playing_timestamp > random_sta_playing_timeout:
-                random_sta = False
-                random_sta_playing_timestamp = random_sta_opening_timestamp = random_sta_error_timestamp = None
-    elif player_state==vlc.State.Opening:
-        stream_status = "⌛"
-        if random_sta and random_sta_opening_timestamp == None:
-            random_sta_opening_timestamp = datetime.datetime.now()
+            station_random(raspbdio, btn)
+
+    if raspbdio.stream_status == raspbdio.stream_statuses["ERROR"]:
+        if check_num == 0:
+            btn.after(1000, lambda : check_random_choice(raspbdio, btn, check_num+1))
         else:
-            if random_sta and datetime.datetime.now() - random_sta_opening_timestamp > random_sta_opening_timeout:
-                random_sta_opening_timestamp = None
-                station_random()
+            station_random(raspbdio, btn)
+
+def station_fav(raspbdio):
+
+    title = raspbdio.stations[raspbdio.current_station_index]
+    stream = raspbdio.stations_data[title]["stream"]
+    if stream == raspbdio.favorite_stations_dict.get(title, {"stream":""})["stream"]:
+        del raspbdio.favorite_stations_dict[title]
+        raspbdio.favorite_stations.remove(title)
     else:
-        stream_status="⚠"
-        if random_sta and random_sta_error_timestamp == None:
-            random_sta_error_timestamp = datetime.datetime.now()
-        else:
-            if random_sta and datetime.datetime.now() - random_sta_error_timestamp > datetime.timedelta(seconds=5):
-                random_sta_error_timestamp = None
-                station_random()
+        raspbdio.favorite_stations_dict[title] = {"stream": stream}
+        raspbdio.favorite_stations.append(title)
+    raspbdio.save_data()
 
-    curent_station_title = stations[current_station_index]
-    curr_sta_title_len = len(curent_station_title)
-    if curr_sta_title_len >= 45:
-        text_station_title.size = 9
-    elif curr_sta_title_len >= 35:
-        text_station_title.size = 16
-    elif curr_sta_title_len >= 30:
-        text_station_title.size = 20
+def station_stop(raspbdio):
+    if raspbdio.stopped:
+        raspbdio.media_player.play()
+        raspbdio.stopped = False
     else:
-        text_station_title.size = 24
+        raspbdio.media_player.stop()
+        raspbdio.stopped = True
 
-    text_station_index.value = "Станция {cur_sta} из {sta_cnt}".format(cur_sta=current_station_index+1, sta_cnt=len(stations))
-    text_station_title.value = "{status} {title}".format(status=stream_status if not mute else "", title=curent_station_title)
-    media = media_player.get_media()
-    media_meta = []
-    for i in range(0,13):
-        media_meta.append(media.get_meta(i))
+def update_state(root, raspbdio):
+    raspbdio.update_state()
+    root.after(1000, lambda : update_state(root, raspbdio))
 
-    if media_meta[12] == None:
-        media_meta[12] = ""
-
-    if len(media_meta[12]) > 40:
-        text_media_title.size = 9
-    elif len(media_meta[12]) >= 30:
-        text_media_title.size = 12
+def label_textkeeper(label, max_font_size, min_font_size=10, magic_number=730):
+    text_len = len(label.cget('text'))
+    if text_len == 0:
+        text_len = 1
+    if magic_number/text_len > max_font_size:
+        label.config(font=("Arial", max_font_size))
+    elif magic_number/text_len < min_font_size:
+        label.config(font=("Arial", min_font_size))
     else:
-        text_media_title.size = 16
-    if not (media_meta[12] is None or media_meta[12]==""):
-        if note_symbol == "♪":
-            note_symbol="♫"
-        else:
-            note_symbol="♪"
-        text_media_title.value = "{note} {title} {note}".format(title=media_meta[12] if not mute else "", note=note_symbol if not mute else "")
+        label.config(font=("Arial", int(magic_number/text_len)))
+    label.after(100, lambda : label_textkeeper(label, max_font_size))
+
+def update_sys_info(label):
+    label.config(text=strftime("%H:%M:%S", localtime()))
+    label.after(500, lambda : update_sys_info(label))
+
+def update_station_info(label, raspbdio):
+    label.config(text="{station} {cur_sta} {from_word} {sta_cnt}".format(station=station_word, from_word=from_word, cur_sta=raspbdio.current_station_index+1, sta_cnt=len(raspbdio.stations)))
+    label.after(300, lambda : update_station_info(label, raspbdio))
+
+def update_plailist_index(label, raspbdio):
+    label.config(text="{playlist} {cur_pla} {from_word} {pla_cnt}".format(playlist=playlist_word, from_word=from_word, cur_pla=raspbdio.current_playlist_index+1, pla_cnt=len(raspbdio.playlists)))
+    label.after(300, lambda : update_plailist_index(label, raspbdio))
+
+def update_plailist_name(label, raspbdio):
+    label.config(text="{title}".format(title=raspbdio.playlists[raspbdio.current_playlist_index].replace('.m3u','')))
+    label.after(300, lambda : update_plailist_name(label, raspbdio))
+
+def update_sta_label(label, raspbdio):
+    label.config(text="{status} {title}"\
+                 .format(status=raspbdio.stream_status_symbol if not raspbdio.stopped else "", title=raspbdio.curent_station_title))
+    label.after(300, lambda : update_sta_label(label, raspbdio))
+
+def update_media_label(label, raspbdio):
+    label.config(text="{note} {title}"\
+    .format(note=raspbdio.media_note_symbol, title=raspbdio.media_title) if not raspbdio.media_title is None and not raspbdio.stopped else "" )
+    label.after(1000, lambda : update_media_label(label, raspbdio))
+
+def update_stop_button(button, raspbdio):
+    button.config(text="{text}".format(text="▶" if raspbdio.stopped else stop_button_label))
+    button.after(300, lambda : update_stop_button(button, raspbdio))
+
+def update_favs_button(button, raspbdio):
+    stream = raspbdio.media.get_mrl()
+    if stream == raspbdio.favorite_stations_dict.get(raspbdio.stations[raspbdio.current_station_index], {"stream":""})["stream"]:
+        button.config(text = delete_favorite_button_label)
     else:
-        text_media_title.value = ""
-
-    text_playlist_index.value = "Плейлист {cur_pla} из {pla_cnt}".format(cur_pla=current_playlist_index+1, pla_cnt=len(playlists))
-    text_playlist_title.value = "{title}".format(title=playlists[current_playlist_index].replace('.m3u',''))
-
-    stream = stations_data[curent_station_title]["stream"]
-    if stream == favorite_stations_dict.get(curent_station_title, {"stream":""})["stream"]:
-        button_favs_station.text = "DEL ❤"
-    else:
-        button_favs_station.text = "❤"
-
-    if mute:
-        button_mute.text = "Unmute"
-    else:
-        button_mute.text = "Mute"
-
-def play_stream():
-    title = stations[current_station_index]
-    stream = stations_data[title]["stream"]
-    media = vlc.Media(stream)
-    media_player.set_media(media)
-    media_player.play()
-
-def mute_stream():
-    global mute
-    if mute:
-        media_player.play()
-        mute = False
-    else:
-        media_player.stop()
-        mute = True
-    update_text_and_housekeep()
-
-def save_data():
-    station = stations[current_station_index]
-    playlist = playlists[current_playlist_index]
-    with open('/etc/radio/station.txt','w') as f:
-        f.write(station)
-    with open('/etc/radio/playlist.txt','w') as f:
-        f.write(playlist)
-    with open(os.path.join(playlist_path, 'Избранное.m3u'),'w') as f:
-        for fav_sta in favorite_stations:
-            f.write("#EXTINF:-1,{title}\n{stream}\n".format(title=fav_sta, stream=favorite_stations_dict[fav_sta]["stream"]))
-
+        button.config(text = favorite_button_label)
+    button.after(1000, lambda : update_favs_button(button, raspbdio))
 
 if __name__ == '__main__':
-    playlists = ["Избранное.m3u"]
-    playlists += [f for f in os.listdir(playlist_path) if os.path.isfile(os.path.join(playlist_path, f)) and f.endswith(".m3u") and f != "Избранное.m3u"]
-    # Текущий плейлист (global в процедурах)
-    current_playlist_index = 0
-    # Станция в выбранном плейлисте (global в процедурах)
-    current_station_index = 0
-    # Используется в анимации названия трека в update_text_and_housekeep(). Да, она тоже глобальная!
-    note_symbol="♪"
-    # Используется как признак рандомного поиска станции для продолжения поиска в случае битого потока. Разумеется, global
-    random_sta = False
-    # Таймстемп старта и таймаут ожидания стабилизации потока случайной станции для ошибочного статуса
-    random_sta_error_timestamp = None
-    # Таймстемп старта и таймаут ожидания стабилизации потока случайной станции для статуса vlc.State.Opening
-    random_sta_opening_timestamp = None
-    random_sta_opening_timeout = datetime.timedelta(seconds=10)
-    # Таймаут ожидания стабилизации потока случайной станции для статуса vlc.State.Playing
-    # Этот статус не означает что всё уже хорошо, лол
-    random_sta_playing_timestamp = None
-    random_sta_playing_timeout = datetime.timedelta(seconds=5)
-    # Статус мьюта
-    mute = False
+    raspbdio = Raspbdio(playlist_path)
 
-    with open('/etc/radio/station.txt', 'r') as f:
-        saved_station = f.read()
-    with open('/etc/radio/playlist.txt', 'r') as f:
-        saved_playlist = f.read()
+    bgcolor = "#1D1D1D"
+    fontcolor = "#D1D1D1"
 
-    for i in range(len(playlists)):
-        if saved_playlist == playlists[i]:
-            current_playlist_index = i
-            print("Founded playlist %s index %s"%(saved_playlist, i))
-            break
+    root = Tk()
+    root.attributes('-fullscreen', True)
+    root.title("Raspbdio")
+    root.configure(background=bgcolor)
+    root.update()
 
-    stations, stations_data = parse_playlist()
-    favorite_stations, favorite_stations_dict = parse_favorite()
+    base_width = root.winfo_width()
+    base_height = root.winfo_height()
 
-    for i in range(len(stations)):
-        if saved_station == stations[i]:
-            current_station_index = i
-            print("Founded station %s index %s"%(saved_station, i))
-            break
+    # Информация о системе
+    sys_info = Label(root, text="", anchor="center", bg=bgcolor, fg=fontcolor, font=("Arial", int(base_height/40)))
+    sys_info.place(relx=1, rely=0.01, anchor="ne")
+    
+    sys_info.after(500, lambda : update_sys_info(sys_info))
 
-    media_player = vlc.MediaPlayer()
+    # Информация о выбранной радиостанции
+    sta_index = Label(root, text="", anchor="center", bg=bgcolor, fg=fontcolor, font=("Arial", int(base_height/40)))
+    sta_index.place(relx=0, rely=0.01, anchor="nw")
 
-    app = App(title="Raspbdio", bg="black", layout="auto")
-    app.set_full_screen()
+    sta_index.after(500, lambda : update_station_info(sta_index, raspbdio))
 
-    # Playlist controllers (need to be alignet to bottom first for be a really bottom)
-    playlist_box = Box(app, width="fill", align="top", border=False)
-    button_prev_playlist = PushButton(playlist_box, command=playlist_prev, text="<", height=1, width=15, align="left")
-    button_next_playlist = PushButton(playlist_box, command=playlist_next, text=">", height=1, width=15, align="right")
-    text_playlist_index = Text(playlist_box, text="", color="gray", height=2, width="fill", size=9)
-    text_playlist_title = Text(playlist_box, text="", color="gray", height=1, width="fill", size=12)
-    button_prev_playlist.text_color="gray"
-    button_next_playlist.text_color="gray"
+    sta_label = Label(root, text="Ultra", anchor="center", bg=bgcolor, fg=fontcolor, font=("Arial", 10))
+    sta_label.place(relx=0.5, rely=0.12, relwidth=1, anchor="c")
+    sta_media_label = Label(root, text="Виктор Цой", anchor="center", bg=bgcolor, fg=fontcolor, font=("Arial", 10))
+    sta_media_label.place(relx=0.5, rely=0.26, relwidth=1, anchor="c")
+    
+    sta_label.after(500, lambda : label_textkeeper(sta_label, int(base_height/12), int(base_height/40)))
+    sta_label.after(500, lambda : update_sta_label(sta_label, raspbdio))
+    sta_media_label.after(500, lambda : label_textkeeper(sta_media_label, int(base_height/12), int(base_height/40)))
+    sta_media_label.after(500, lambda : update_media_label(sta_media_label, raspbdio))
 
-    # Station controllers
-    station_button_box = Box(app, width="fill", border=False)
-    button_prev_station = PushButton(station_button_box, command=station_prev, text="<", height=6, width=15, align="left")
-    button_next_station = PushButton(station_button_box, command=station_next, text=">", height=6, width=15, align="right")
-    button_rnd_station = PushButton(station_button_box, command=station_random, text="Random", height=2, width=19, align="top")
-    button_mute = PushButton(station_button_box, command=mute_stream, text="Mute", height=2, width=8, align="left")
-    button_favs_station = PushButton(station_button_box, command=station_fav, text="❤", height=2, width=8, align="right")
-    button_prev_station.text_color="gray"
-    button_next_station.text_color="gray"
-    button_rnd_station.text_color="gray"
-    button_mute.text_color="gray"
-    button_favs_station.text_color="gray"
+    # Кнопки управления станцией
+    sta_prev_btn = Button(root, text="<", command=lambda : station_prev(raspbdio),\
+        bg=bgcolor, fg=fontcolor, activebackground=bgcolor, activeforeground=fontcolor, borderwidth=0, font=("Arial", int(base_height/5), "bold"))
+    sta_prev_btn.place(relx=0, rely=0.55, relwidth=0.29, relheight=0.41, anchor="w")
+    
+    sta_next_btn = Button(root, text=">", command=lambda : station_next(raspbdio),\
+        bg=bgcolor, fg=fontcolor, activebackground=bgcolor, activeforeground=fontcolor, font=("Arial", int(base_height/5), "bold"))
+    sta_next_btn.place(relx=1, rely=0.55, relwidth=0.29, relheight=0.41, anchor="e")
+    
+    sta_rndm_btn = Button(root, text=random_button_label, command=lambda : station_random(raspbdio, sta_rndm_btn),\
+        bg=bgcolor, fg=fontcolor, activebackground=bgcolor, activeforeground=fontcolor, font=("Arial", int(base_height/15)))
+    sta_rndm_btn.place(relx=0.5, rely=0.45, relwidth=0.39, relheight=0.2, anchor="center")
 
-    # Station info
-    station_box = Box(app, width="fill", align="bottom", border=False)
-    text_station_title = Text(station_box, text="", color="gray", height=2, width="fill", align="top", size=24)
-    text_media_title = Text(station_box, text="", color="gray", height=2, width="fill", align="top", size=16)
-    text_station_index = Text(station_box, text="", color="gray", height=2, width="fill", align="bottom", size=9)
+    sta_favs_btn = Button(root, text=favorite_button_label, command=lambda : station_fav(raspbdio),\
+        bg=bgcolor, fg=fontcolor, activebackground=bgcolor, activeforeground=fontcolor, font=("Arial", int(base_height/15)))
+    sta_favs_btn.place(relx=0.4, rely=0.66, relwidth=0.19, relheight=0.2, anchor="center")
 
-    play_stream()
-    update_text_and_housekeep()
-    text_station_title.repeat(1000, update_text_and_housekeep)  
-    app.display()
+    sta_stop_btn = Button(root, text=stop_button_label, command=lambda : station_stop(raspbdio),\
+        bg=bgcolor, fg=fontcolor, activebackground=bgcolor, activeforeground=fontcolor, font=("Arial", int(base_height/15)))
+    sta_stop_btn.place(relx=0.6, rely=0.66, relwidth=0.19, relheight=0.2, anchor="center")
+    
+    sta_stop_btn.after(500, lambda : update_stop_button(sta_stop_btn, raspbdio))
+    sta_favs_btn.after(1000, lambda : update_favs_button(sta_favs_btn, raspbdio))
+
+    # Кнопки выбора плейлиста и информация о плейлисте
+    pla_prev_btn = Button(root, text="<", command=lambda : playlist_prev(raspbdio), \
+        bg=bgcolor, fg=fontcolor, activebackground=bgcolor, activeforeground=fontcolor, font=("Arial", int(base_height/10), "bold"))
+    pla_prev_btn.place(relx=0, rely=1, relwidth=0.3, height=int(base_height/6), anchor="sw")
+    
+    pla_next_btn = Button(root, text=">", command=lambda : playlist_next(raspbdio),\
+        bg=bgcolor, fg=fontcolor, activebackground=bgcolor, activeforeground=fontcolor, font=("Arial", int(base_height/10), "bold"))
+    pla_next_btn.place(relx=1, rely=1, relwidth=0.3, height=int(base_height/6), anchor="se")
+
+    pla_label = Label(root, text="", anchor="center", bg=bgcolor, fg=fontcolor)
+    pla_label.place(relx=0.5, rely=0.92, relwidth=0.4, anchor="s")
+
+    pla_index = Label(root, text="", anchor="center", bg=bgcolor, fg=fontcolor, font=("Arial", int(base_height/25)))
+    pla_index.place(relx=0.5, rely=1, relwidth=0.4, anchor="s")
+    
+    pla_label.after(500, lambda : label_textkeeper(pla_label, int(base_height/20), int(base_height/40), magic_number=500))
+    pla_label.after(500, lambda : update_plailist_name(pla_label, raspbdio))
+    pla_index.after(500, lambda : update_plailist_index(pla_index, raspbdio))
+
+    root.after(500, lambda : update_state(root, raspbdio))
+
+    root.mainloop()
+    # update_text_and_housekeep()
+    # text_station_title.repeat(1000, update_text_and_housekeep)  
+    # app.display()

@@ -9,9 +9,9 @@ Group=<USER>
 WorkingDirectory=/home/<USER>/raspbdio
 Environment=DISPLAY=:0
 Environment=XDG_RUNTIME_DIR=/run/user/1000
-ExecStartPre=/usr/bin/sleep 10
 ExecStart=/home/<USER>/raspbdio/raspbdio.py
 Type=simple
+Restart=always
 
 [Install]
 WantedBy=graphical.target

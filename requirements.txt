@@ -1,2 +1,2 @@
-guizero
+tk
 python-vlc
