@@ -56,8 +56,11 @@ class Raspbdio:
     def _parse_playlist(self):
         stations = []
         stations_data = {}
-        with open(os.path.join(self.playlist_path, self.playlists[self.current_playlist_index]), 'r') as f:
-            playlist_data = f.read().split('\n')
+        try:
+            with open(os.path.join(self.playlist_path, self.playlists[self.current_playlist_index]), 'r') as f:
+                playlist_data = f.read().split('\n')
+        except FileNotFoundError:
+            return
         extinf = False
         text_station_title = parse_station_name_error_message
         for row in playlist_data:
