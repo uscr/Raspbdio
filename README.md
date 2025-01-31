@@ -31,7 +31,7 @@ Telegram [UsCr0](https://t.me/UsCr0)
 
     ... clone this repo and cd to cloned directory ...
 
-    sudo apt -y install python3-pip vlc
+    sudo apt -y install python3-pip python3-tk vlc
     sudo pip3 install -r requirements.txt
     mkdir -p ~/raspbdio/playlists
     cp ./* ~/raspbdio/
